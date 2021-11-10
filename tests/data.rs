@@ -1,4 +1,4 @@
-use thundermot_with_rust::data;
+use ab3dmot::data;
 
 #[test]
 fn input_data_get3d() -> () {

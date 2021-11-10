@@ -1,6 +1,4 @@
-use thundermot_with_rust::{data,
-    ab3dmot::{AB3DMOT},
-};
+use ab3dmot::{data, AB3DMOT, };
 
 #[test]
 fn ab3dmot_frame_test() -> () {
