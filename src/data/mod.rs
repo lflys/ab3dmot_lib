@@ -1,10 +1,13 @@
-use strum_macros::Display;
+use strum_macros::{Display, EnumString};
 
-#[derive(Clone, Copy, num_enum::TryFromPrimitive, Display)]
+#[derive(Clone, Copy, num_enum::TryFromPrimitive, Display, EnumString)]
 #[repr(u8)]
 pub enum ObjectType {
+    #[strum(ascii_case_insensitive)]
     Pedestrian = 1,
+    #[strum(ascii_case_insensitive)]
     Car = 2,
+    #[strum(ascii_case_insensitive)]
     Cyclist = 3,
 }
 

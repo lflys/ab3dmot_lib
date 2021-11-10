@@ -30,8 +30,9 @@ thundermot_with_rust
   |
   |-- src/  (库源文件 
   |     |
-  |     |-- lib.rs  (内容不多，就是载入一下下属文件)
-  |     |-- ab3dmot/  (与 ab3dmot 模型相关)
+  |     |-- lib.rs  (定义了 iou3d(计算两个3d检测框之间的 3d iou 值的函数)、associate_detections_to_trackers(将检测结果和tracker关联的函数)、AB3DMOT(整个模型的实现类)
+  |     |-- kalman_filter.rs  (定义了用于合理计算这个问题中bbox下一步位置的 kalman filter)
+  |     |-- ab3dmot/  (与 ab3dmot 模型相关，无用，暂时保留)
   |     |     |
   |     |     |-- mod.rs  (定义了 iou3d(计算两个3d检测框之间的 3d iou 值的函数)、associate_detections_to_trackers(将检测结果和tracker关联的函数)、AB3DMOT(整个模型的实现类)
   |     |     |-- kalman_filter.rs  (定义了用于合理计算这个问题中bbox下一步位置的 kalman filter)

@@ -1,3 +1,5 @@
+use std::{convert::TryFrom, str::FromStr};
+
 use ab3dmot::data;
 
 #[test]
@@ -10,4 +12,10 @@ fn input_data_get3d() -> () {
             }
         }
     }
+}
+
+#[test]
+fn convert_str_2_type_enum() -> () {
+    println!("{}", data::ObjectType::from_str("car").unwrap());
+    println!("{}", data::ObjectType::try_from(2).unwrap());
 }
