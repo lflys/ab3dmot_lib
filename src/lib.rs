@@ -14,6 +14,16 @@ use ordered_float::{OrderedFloat};
 use uuid::{Uuid};
 use names::{Generator};
 
+const MAGNIFY: f32 = 1e6;
+
+fn kuhn_munkres_4_f32(weight_matrix_f64: &Matrix<f32>) -> (i64, Vec<usize>) {
+    let mut weight_matrix_i64 = Matrix::new(weight_matrix_f64.rows(), weight_matrix_f64.columns(), 0i64);
+    for (i, j) in (0..weight_matrix_f64.rows()).cartesian_product(0..weight_matrix_f64.columns()) {
+        weight_matrix_i64[&(i, j)] = (weight_matrix_f64[&(i, j)]*MAGNIFY) as i64;
+    }
+    kuhn_munkres(&weight_matrix_i64)
+}
+
 fn associate_detections_to_trackers(
     trks: &Vec<BBox3D::CornerPoints>,
     dets: &Vec<BBox3D::CornerPoints>,
@@ -32,15 +42,15 @@ fn associate_detections_to_trackers(
             // 当 trks 数量少于 dets，则将 trk_id 置为匈牙利算法的行
 
             // 这里的 Matrix 是 pathfinding 中的 Matrix
-            let mut iou_matrix = Matrix::new(trks.len(), dets.len(), OrderedFloat(0f32));
+            let mut iou_matrix = Matrix::new(trks.len(), dets.len(), 0f32);
             for ((trk_i, each_trk), (det_j, each_det), ) in
             trks.iter().enumerate().cartesian_product(dets.iter().enumerate()) {
                 // 为每个 trk 和 每个 det 的配对都计算 iou3d
-                iou_matrix[&(trk_i, det_j)] = OrderedFloat(iou3d(each_det, each_trk).0);
+                iou_matrix[&(trk_i, det_j)] = iou3d(each_det, each_trk).0;
             }
 
             // 得到以原 trks 向量中每一个 trk_id 作为这个 Vec 中的 idx，赋于其对应的 det 在 dets Vec 中的 idx
-            let matched__idx_as_trk_idx__value_as_det_idx = kuhn_munkres(&iou_matrix).1;
+            let matched__idx_as_trk_idx__value_as_det_idx = kuhn_munkres_4_f32(&iou_matrix).1;
 
             let (mut unmatched_trks, mut unmatched_dets, ) = (Vec::new(), Vec::new(), );
             for det_idx in 0..dets.len() {
@@ -52,7 +62,7 @@ fn associate_detections_to_trackers(
 
             // 进一步地筛选 iou3d 过小的匹配
             for (trk_idx, det_idx) in matched__idx_as_trk_idx__value_as_det_idx.into_iter().enumerate() {
-                if iou_matrix.at(trk_idx, det_idx) < OrderedFloat(iou_threshold) {
+                if iou_matrix.at(trk_idx, det_idx) < iou_threshold {
                     unmatched_trks.push(trk_idx);
                     unmatched_dets.push(det_idx);
                 } else {
@@ -64,12 +74,12 @@ fn associate_detections_to_trackers(
         } else {
             // 以 det 作为行，trk 作为列
 
-            let mut iou_matrix = Matrix::new(dets.len(), trks.len(), OrderedFloat(0f32));
+            let mut iou_matrix = Matrix::new(dets.len(), trks.len(), 0f32);
             for ((trk_i, each_trk), (det_j, each_det), ) in
             trks.iter().enumerate().cartesian_product(dets.iter().enumerate()) {
-                iou_matrix[&(det_j, trk_i)] = OrderedFloat(iou3d(each_det, each_trk).0);
+                iou_matrix[&(det_j, trk_i)] = iou3d(each_det, each_trk).0;
             }
-            let matched__idx_as_det_idx__value_as_trk_idx = kuhn_munkres(&iou_matrix).1;
+            let matched__idx_as_det_idx__value_as_trk_idx = kuhn_munkres_4_f32(&iou_matrix).1;
             let (mut unmatched_trks, mut unmatched_dets, ) = (Vec::new(), Vec::new(), );
             for trk_idx in 0..trks.len() {
                 if !matched__idx_as_det_idx__value_as_trk_idx.contains(&trk_idx) {
@@ -78,7 +88,7 @@ fn associate_detections_to_trackers(
             }
             let mut matched = Vec::new();
             for (det_idx, trk_idx) in matched__idx_as_det_idx__value_as_trk_idx.into_iter().enumerate() {
-                if iou_matrix.at(det_idx, trk_idx) < OrderedFloat(iou_threshold) {
+                if iou_matrix.at(det_idx, trk_idx) < iou_threshold {
                     unmatched_dets.push(det_idx);
                     unmatched_trks.push(trk_idx);
                 } else {
