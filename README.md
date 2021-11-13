@@ -45,6 +45,7 @@ thundermot_with_rust
   |     
   |-- tests  (测试文件夹)
   |     |
+  |     |-- lib.rs  (测试文件的顶层模组，其中定义下方两个模组)
   |     |-- ab3dmot.rs  (测试整体模型)
   |     |-- data.rs  (测试数据输入输出)
   |

@@ -2,9 +2,11 @@ use std::{convert::TryFrom, str::FromStr};
 
 use ab3dmot::data;
 
+use super::prepare_data;
+
 #[test]
 fn input_data_get3d() -> () {
-    let data_1 = data::input::prepare_data();
+    let data_1 = prepare_data();
     for each_frame_seq in data_1.frames_seqs {
         for each_frame in each_frame_seq.frames {
             for (object_type, xyz, score) in each_frame.get_3d_infos() {

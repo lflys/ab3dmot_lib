@@ -155,52 +155,8 @@ impl TrackerKF {
         Self::wrap_2_0_2_2pi(angle + PI as TypeUnderModel) - PI as TypeUnderModel
     }
 
-    pub fn new(bbox3d: BBox3D::XYZLHWRotY, initial_estimation_noise_var: [TypeUnderModel; 10]) -> Self {
-        let BBox3D::XYZLHWRotY(x, y, z, l, h, w, rot_y) = bbox3d;
-        /*
-        // let (motion_model_ptr, observation_model_ptr) = unsafe {
-        //     let (motion_model_ptr, observation_model_ptr) = (
-        //         alloc(Self::MOTION_MODEL_LAYOUT) as *mut ConstantVelocity3DModel<TypeUnderModel>,
-        //         alloc(Self::OBSERVATION_MODEL_LAYOUT) as *mut PositionObservation3DModel<TypeUnderModel>
-        //     );
-        //     *motion_model_ptr = ConstantVelocity3DModel::new([
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //     ]);
-        //     *observation_model_ptr = PositionObservation3DModel::new([0 as TypeUnderModel; 10]);
-        //     (motion_model_ptr, observation_model_ptr)
-        // };
-        */
-
-        // let (motion_model, observation_model) = (
-        //     ConstantVelocity3DModel::new([
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //         0.1 as TypeUnderModel,
-        //     ]),
-        //     PositionObservation3DModel::new([0.1 as TypeUnderModel; 7])
-        // );
-
-        // let kf = unsafe {KalmanFilterNoControl::new(
-        //     motion_model_ptr.as_ref::<'b>().unwrap(),
-        //      observation_model_ptr.as_ref::<'b>().unwrap()
-        // )};
-
+    pub fn new(bbox3d: BBox3D::XYZWHLRotY, initial_estimation_noise_var: [TypeUnderModel; 10]) -> Self {
+        let BBox3D::XYZWHLRotY(x, y, z, l, h, w, rot_y) = bbox3d;
         let init_state_x = OVector::<TypeUnderModel, U10>::from_iterator([
             x as TypeUnderModel,
             y as TypeUnderModel,
@@ -233,7 +189,7 @@ impl TrackerKF {
         MOTION_MODEL.predict(&self.previous_est)
     }
 
-    pub fn update(&mut self, BBox3D::XYZLHWRotY(x, y, z, l, h, w, rot_y): BBox3D::XYZLHWRotY) {
+    pub fn update(&mut self, BBox3D::XYZWHLRotY(x, y, z, l, h, w, rot_y): BBox3D::XYZWHLRotY) {
         let mut previous_est_angle = Self::wrap_2_minus_pi_2_pi(self.previous_est.state()[6]);  // 把上一状态中的「角度」设为 -π 到 +π
 
         let mut angle_obs = Self::wrap_2_minus_pi_2_pi(rot_y);  // 把到来的检测框的「角度」设为 -π 到 +π
@@ -311,5 +267,4 @@ impl TrackerKF {
             }
         }
     }
-
 }

@@ -1,3 +1,6 @@
+//! # ab3dmot 模型
+
+/// 这里以后会解耦
 pub mod data;
 
 mod kalman_filter;
@@ -14,8 +17,10 @@ use ordered_float::{OrderedFloat};
 use uuid::{Uuid};
 use names::{Generator};
 
+// 匈牙利算法的放大系数
 const MAGNIFY: f32 = 1e6;
 
+// 用放大方法将对 float 型的最优匹配问题转为对 int 型的最优匹配问题
 fn kuhn_munkres_4_f32(weight_matrix_f64: &Matrix<f32>) -> (i64, Vec<usize>) {
     let mut weight_matrix_i64 = Matrix::new(weight_matrix_f64.rows(), weight_matrix_f64.columns(), 0i64);
     for (i, j) in (0..weight_matrix_f64.rows()).cartesian_product(0..weight_matrix_f64.columns()) {
@@ -24,14 +29,13 @@ fn kuhn_munkres_4_f32(weight_matrix_f64: &Matrix<f32>) -> (i64, Vec<usize>) {
     kuhn_munkres(&weight_matrix_i64)
 }
 
+// 匈牙利算法虽优匹配
 fn associate_detections_to_trackers(
     trks: &Vec<BBox3D::CornerPoints>,
     dets: &Vec<BBox3D::CornerPoints>,
     iou_threshold: f32,
 ) -> (Vec<(usize, usize, f32)>, Vec<usize>, Vec<usize>) /* matched, unmatched_trks, unmatched_dets*/ {
     // matched: (trk_idx, det_idx, iou3d)
-
-    
     if dets.is_empty() {
         // dets 为空则
         (Vec::<(usize, usize, f32)>::new(), (0..dets.len()).collect(), Vec::<usize>::new())
@@ -151,7 +155,7 @@ struct Tracker {
     id: Uuid,
     name: String,
     object_type: ObjectType,
-    bbox_3d: BBox3D::XYZLHWRotY,
+    bbox_3d: BBox3D::XYZWHLRotY,
     trk_kf: TrackerKF,
     num_hit: usize,
     unmatched_f_since_l: usize,
@@ -192,7 +196,7 @@ impl AB3DMOT {
         let tracker_predictions: Vec<_> = self.trackers.iter().map(
             |x| {
                 let rst_ovecter = (&x.trk_kf as &TrackerKF).predict().state().clone();
-                BBox3D::XYZLHWRotY(
+                BBox3D::XYZWHLRotY(
                     rst_ovecter[0],
                     rst_ovecter[1],
                     rst_ovecter[2],
@@ -268,7 +272,8 @@ impl AB3DMOT {
                         id: x.id,
                         name: x.name.clone(),
                         object_type: x.object_type,
-                        bbox_3d: x.bbox_3d,
+                        bbox_2d: None,
+                        bbox_3d: Some(x.bbox_3d),
                         num_hit: x.num_hit,
                         unmatched_f_since_l: x.unmatched_f_since_l,
                         iou3d_history: x.iou3d_history.clone(),
