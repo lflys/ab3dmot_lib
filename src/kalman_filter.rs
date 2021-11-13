@@ -2,6 +2,7 @@ use core::{f64::consts::{PI}, panic};
 
 use nalgebra::{Const, OMatrix, OVector, RealField, dimension::{U7, U10}, one, zero};
 use adskalman::{KalmanFilterNoControl, TransitionModelLinearNoControl, ObservationModel, StateAndCovariance};
+use lazy_static::lazy_static;
 
 use crate::data::{BBox3D, };
 
@@ -104,6 +105,23 @@ where R: RealField,
 
 type TypeUnderModel = f32;
 
+lazy_static! {
+    static ref MOTION_MODEL: ConstantVelocity3DModel<TypeUnderModel> = ConstantVelocity3DModel::new([
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0 as TypeUnderModel,
+        0.1 as TypeUnderModel,
+        0.1 as TypeUnderModel,
+        0.1 as TypeUnderModel,
+    ]);
+    static ref OBSERVATION_MODEL: PositionObservation3DModel<TypeUnderModel> = PositionObservation3DModel::new([0.1 as TypeUnderModel; 7]);
+}
+
+
 pub struct TrackerKF {
     // id: usize,
     // hit_streak: usize,
@@ -118,8 +136,8 @@ pub struct TrackerKF {
     // age: usize,
 
     ////////////////////
-    motion_model: ConstantVelocity3DModel<TypeUnderModel>,
-    observation_model: PositionObservation3DModel<TypeUnderModel>
+    // motion_model: ConstantVelocity3DModel<TypeUnderModel>,
+    // observation_model: PositionObservation3DModel<TypeUnderModel>
 }
 impl TrackerKF {
     // const HIT_STREAK: usize = 2;
@@ -162,21 +180,21 @@ impl TrackerKF {
         // };
         */
 
-        let (motion_model, observation_model) = (
-            ConstantVelocity3DModel::new([
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0 as TypeUnderModel,
-                0.1 as TypeUnderModel,
-                0.1 as TypeUnderModel,
-                0.1 as TypeUnderModel,
-            ]),
-            PositionObservation3DModel::new([0.1 as TypeUnderModel; 7])
-        );
+        // let (motion_model, observation_model) = (
+        //     ConstantVelocity3DModel::new([
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0 as TypeUnderModel,
+        //         0.1 as TypeUnderModel,
+        //         0.1 as TypeUnderModel,
+        //         0.1 as TypeUnderModel,
+        //     ]),
+        //     PositionObservation3DModel::new([0.1 as TypeUnderModel; 7])
+        // );
 
         // let kf = unsafe {KalmanFilterNoControl::new(
         //     motion_model_ptr.as_ref::<'b>().unwrap(),
@@ -205,8 +223,6 @@ impl TrackerKF {
         let observation = OVector::<TypeUnderModel, U7>::zeros();
 
         Self {
-            motion_model,
-            observation_model,
             previous_est,
             observation,
             // history: Vec::<()>::new(),
@@ -214,7 +230,7 @@ impl TrackerKF {
     }
     
     pub fn predict(&self) -> StateAndCovariance<TypeUnderModel, U10> {
-        self.motion_model.predict(&self.previous_est)
+        MOTION_MODEL.predict(&self.previous_est)
     }
 
     pub fn update(&mut self, BBox3D::XYZLHWRotY(x, y, z, l, h, w, rot_y): BBox3D::XYZLHWRotY) {
@@ -285,7 +301,7 @@ impl TrackerKF {
             angle_obs as TypeUnderModel,
         ]);
 
-        let kf = KalmanFilterNoControl::new(&self.motion_model, &self.observation_model);
+        let kf = KalmanFilterNoControl::new(&*MOTION_MODEL, &*OBSERVATION_MODEL);
         // self.previous_est = kf.step(&self.previous_est, &self.observation).unwrap();
         self.previous_est = match kf.step(&self.previous_est, &self.observation) {
             Ok(x) => x,
