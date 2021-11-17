@@ -1,4 +1,5 @@
 use ab3dmot::{AB3DMOT, };
+use itertools::Itertools;
 
 use super::prepare_data;
 
@@ -6,7 +7,7 @@ use super::prepare_data;
 fn ab3dmot_frame_test() -> () {
     let frame_seq = prepare_data().frames_seqs.swap_remove(0).frames;
     let mut ab3dmot = AB3DMOT::new(2, 1, 0.2);
-    for (frame_num, each_frame) in frame_seq.iter().enumerate() {
+    for (frame_num, each_frame) in frame_seq.iter().map(|x| Some(x)).intersperse(None).enumerate() {
         let rst = ab3dmot.update(each_frame);
         println!("frame_num: {}", frame_num);
         for each_tracked_object in rst.objects {

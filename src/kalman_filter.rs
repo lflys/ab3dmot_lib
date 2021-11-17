@@ -122,6 +122,7 @@ lazy_static! {
 }
 
 
+#[derive(Clone)]
 pub struct TrackerKF {
     // id: usize,
     // hit_streak: usize,
