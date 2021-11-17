@@ -1,4 +1,4 @@
-use ab3dmot::{data, AB3DMOT, };
+use ab3dmot::{AB3DMOT, };
 
 use super::prepare_data;
 

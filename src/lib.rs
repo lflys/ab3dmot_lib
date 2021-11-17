@@ -1,12 +1,9 @@
 //! # ab3dmot 模型
 
-/// 这里以后会解耦
-pub mod data;
-
 mod kalman_filter;
 
 use kalman_filter::TrackerKF;
-use crate::data::{BBox3D, ObjectType, input::{Frame as IFrame}, output::{Object as OObject, Frame as OFrame}};
+use mot_data::{BBox3D, ObjectType, input::{Frame as IFrame}, output::{Object as OObject, Frame as OFrame}};
 
 use geo::{intersects::Intersects, polygon, prelude::{Area}};
 use geo_clipper::{Clipper};

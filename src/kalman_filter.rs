@@ -4,7 +4,7 @@ use nalgebra::{Const, OMatrix, OVector, RealField, dimension::{U7, U10}, one, ze
 use adskalman::{KalmanFilterNoControl, TransitionModelLinearNoControl, ObservationModel, StateAndCovariance};
 use lazy_static::lazy_static;
 
-use crate::data::{BBox3D, };
+use mot_data::{BBox3D, };
 
 pub struct ConstantVelocity3DModel<R>
 where R: RealField,
