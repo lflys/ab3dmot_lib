@@ -8,7 +8,7 @@ use mot_data::{BBox2D, BBox3D, ObjectType, input::{Data, Frame, FrameSeq, Object
 /// 2. 可以有多个数据
 /// 
 const DATA_FILE_PATHS: [&str; 1] = [
-    "/home/pete/Projects/rust/ROS2/thundermot_with_rust/data/KITTI/pointrcnn_Car_test/0000.txt"
+    "/home/pete/Projects/ab3dmot-rust/ab3dmot/data/KITTI/pointrcnn_Car_test/0000.txt"
 ];
 // 本来这里是可以直接用 include_str! 来写入 binary 的，但是发现它太慢了，就没有用这个方法了
 
@@ -47,7 +47,7 @@ pub fn prepare_data() -> Data {
 
             // 在数据中加入缺失的帧
             for _ in frame_seq.frames.len()..=frame_num {
-                frame_seq.frames.push(Frame{objects: Vec::<Object>::new()});
+                frame_seq.frames.push(Frame{objects: Vec::<Object>::new(), delta_t:1usize});
             }
             
             // 向相应帧中加入物体

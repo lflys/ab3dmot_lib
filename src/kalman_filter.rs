@@ -1,4 +1,5 @@
 use core::{f64::consts::{PI}, panic};
+use std::sync::{Arc, Mutex};
 
 use nalgebra::{Const, OMatrix, OVector, RealField, dimension::{U7, U10}, one, zero};
 use adskalman::{KalmanFilterNoControl, TransitionModelLinearNoControl, ObservationModel, StateAndCovariance};
@@ -6,33 +7,41 @@ use lazy_static::lazy_static;
 
 use mot_data::{BBox3D, };
 
+#[derive(Clone, Copy)]
 pub struct ConstantVelocity3DModel<R>
 where R: RealField,
 {
+    /// ### Kalman 状态转移矩阵 F_k
+    ///
+    /// ```plain text
+    /// [1, 0, 0, 0, 0, 0, 0, t_k, 0  , 0  , ]   [x]
+    /// [0, 1, 0, 0, 0, 0, 0, 0  , t_k, 0  , ]   [y]
+    /// [0, 0, 1, 0, 0, 0, 0, 0  , 0  , t_k, ]   [z]
+    /// [0, 0, 0, 1, 0, 0, 0, 0  , 0  , 0  , ]   [w]
+    /// [0, 0, 0, 0, 1, 0, 0, 0  , 0  , 0  , ]   [h]
+    /// [0, 0, 0, 0, 0, 1, 0, 0  , 0  , 0  , ] * [l]
+    /// [0, 0, 0, 0, 0, 0, 1, 0  , 0  , 0  , ]   [rot_y]
+    /// [0, 0, 0, 0, 0, 0, 0, 1  , 0  , 0  , ]   [v_x]
+    /// [0, 0, 0, 0, 0, 0, 0, 0  , 1  , 0  , ]   [v_y]
+    /// [0, 0, 0, 0, 0, 0, 0, 0  , 0  , 1  , ]   [v_z]
+    /// ^                                        ^
+    /// F_k                                    * state_k
+    /// ```
+    /// 1. v_x、v_y、v_z 分别代表自定单位下 x、y、z 轴上的速度
+    /// 2. state_k.x = state_k-1.x + t_k * state_k-1.v_k
+    /// 3. 所以可以看出这个转换模型在每个时间 k 都是会变化的，需给出距上次的时间间隔 t_k
     transition_model_f: OMatrix<R, U10, U10>,
     transition_model_f_transpose: OMatrix<R, U10, U10>,
+    /// ### Kalman 模型处理误差 Q
     transition_noise_covariance_q: OMatrix<R, U10, U10>,
 }
 impl<R> ConstantVelocity3DModel<R>
 where R: RealField + Copy,
 {
-    pub fn new(transition_noise_var_q: [R; 10]) -> Self {
-        let (r_zero, r_one) = (zero::<R>(), one::<R>());
-        /*
-        let (r_two, r_three, r_four, r_five, r_six, r_seven, r_eight, r_nine, r_ten) = (
-            r_one + r_one,
-            r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one,
-            r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one + r_one,
-        );
-        */
+    /// 传入 Q 的对角元素和据上一次的时间间隔
+    pub fn new(transition_noise_var_q: [R; 10], delta_t: R) -> Self {
         let mut transition_model_f = OMatrix::identity_generic(Const::<10>, Const::<10>);
-        transition_model_f[(0, 7)] = r_one; transition_model_f[(1, 8)] = r_one; transition_model_f[(2, 9)] = r_one;
+        transition_model_f[(0, 7)] = delta_t; transition_model_f[(1, 8)] = delta_t; transition_model_f[(2, 9)] = delta_t;
 
         let mut transition_noise_covariance_q = OMatrix::identity_generic(Const::<10>, Const::<10>);
         for (idx, var) in (0..).zip(transition_noise_var_q) {
@@ -44,6 +53,16 @@ where R: RealField + Copy,
             transition_model_f_transpose: transition_model_f.transpose(),
             transition_noise_covariance_q
         }
+    }
+
+    pub fn set_delta_time(&mut self, delta_t: R) -> &mut Self {
+        self.transition_model_f[(0, 7)] = delta_t;
+        self.transition_model_f[(1, 8)] = delta_t;
+        self.transition_model_f[(2, 9)] = delta_t;
+        self.transition_model_f_transpose[(7, 0)] = delta_t;
+        self.transition_model_f_transpose[(8, 1)] = delta_t;
+        self.transition_model_f_transpose[(9, 2)] = delta_t;
+        self
     }
 }
 impl<R> TransitionModelLinearNoControl<R, U10> for ConstantVelocity3DModel<R>
@@ -106,19 +125,22 @@ where R: RealField,
 type TypeUnderModel = f32;
 
 lazy_static! {
-    static ref MOTION_MODEL: ConstantVelocity3DModel<TypeUnderModel> = ConstantVelocity3DModel::new([
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0 as TypeUnderModel,
-        0.1 as TypeUnderModel,
-        0.1 as TypeUnderModel,
-        0.1 as TypeUnderModel,
-    ]);
-    static ref OBSERVATION_MODEL: PositionObservation3DModel<TypeUnderModel> = PositionObservation3DModel::new([0.1 as TypeUnderModel; 7]);
+    static ref MOTION_MODEL: Arc<Mutex<ConstantVelocity3DModel<TypeUnderModel>>> = Arc::new(Mutex::new(ConstantVelocity3DModel::new(
+        [
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            0.05 as TypeUnderModel,
+            1e-10 as TypeUnderModel,
+            1e-10 as TypeUnderModel,
+            1e-10 as TypeUnderModel,
+        ],
+        1 as TypeUnderModel,
+    )));
+    static ref OBSERVATION_MODEL: PositionObservation3DModel<TypeUnderModel> = PositionObservation3DModel::new([0.01 as TypeUnderModel; 7]);
 }
 
 
@@ -186,11 +208,24 @@ impl TrackerKF {
         }
     }
     
-    pub fn predict(&self) -> StateAndCovariance<TypeUnderModel, U10> {
-        MOTION_MODEL.predict(&self.previous_est)
+    pub fn get_current_state(&self) -> BBox3D::XYZWHLRotY {
+        BBox3D::XYZWHLRotY(
+            self.observation[0],
+            self.observation[1],
+            self.observation[2],
+            self.observation[3],
+            self.observation[4],
+            self.observation[5],
+            self.observation[6],
+        )
+    }
+    
+    pub fn predict(&self, delta_t: TypeUnderModel) -> StateAndCovariance<TypeUnderModel, U10> {
+        // MOTION_MODEL.predict(&self.previous_est)
+        MOTION_MODEL.clone().lock().unwrap().set_delta_time(delta_t).predict(&self.previous_est)
     }
 
-    pub fn update(&mut self, BBox3D::XYZWHLRotY(x, y, z, l, h, w, rot_y): BBox3D::XYZWHLRotY) {
+    pub fn update(&mut self, BBox3D::XYZWHLRotY(x, y, z, w, h, l, rot_y): BBox3D::XYZWHLRotY, delta_t: TypeUnderModel) {
         let mut previous_est_angle = Self::wrap_2_minus_pi_2_pi(self.previous_est.state()[6]);  // 把上一状态中的「角度」设为 -π 到 +π
 
         let mut angle_obs = Self::wrap_2_minus_pi_2_pi(rot_y);  // 把到来的检测框的「角度」设为 -π 到 +π
@@ -252,13 +287,14 @@ impl TrackerKF {
             x as TypeUnderModel,
             y as TypeUnderModel,
             z as TypeUnderModel,
-            h as TypeUnderModel,
             w as TypeUnderModel,
+            h as TypeUnderModel,
             l as TypeUnderModel,
             angle_obs as TypeUnderModel,
         ]);
 
-        let kf = KalmanFilterNoControl::new(&*MOTION_MODEL, &*OBSERVATION_MODEL);
+        let motion_model = *MOTION_MODEL.clone().lock().unwrap().set_delta_time(delta_t);
+        let kf = KalmanFilterNoControl::new(&motion_model, &*OBSERVATION_MODEL);
         // self.previous_est = kf.step(&self.previous_est, &self.observation).unwrap();
         self.previous_est = match kf.step(&self.previous_est, &self.observation) {
             Ok(x) => x,
@@ -266,6 +302,10 @@ impl TrackerKF {
                 println!("{}", e.to_string());
                 panic!();
             }
-        }
+        };
+        let state = self.previous_est.state();
+        let (vx, vy, vz) = (state[7], state[8], state[9]);
+        let if_break_here = vx > 0.001 || vy > 0.001 || vz > 0.001;
+        let a = 0;
     }
 }

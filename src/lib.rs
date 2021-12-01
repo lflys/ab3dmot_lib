@@ -2,8 +2,6 @@
 
 mod kalman_filter;
 
-use std::collections::{BTreeSet, BinaryHeap};
-
 use kalman_filter::TrackerKF;
 use mot_data::{BBox3D, ObjectType, input::{Frame as IFrame}, output::{Object as OObject, Frame as OFrame}};
 
@@ -11,13 +9,18 @@ use geo::{intersects::Intersects, polygon, prelude::{Area}};
 use geo_clipper::{Clipper};
 use itertools::Itertools;
 use pathfinding::{kuhn_munkres::{kuhn_munkres}, matrix::{Matrix}, prelude::Weights};
-use ordered_float::{OrderedFloat};
 
 use uuid::{Uuid};
 use names::{Generator};
 
+/* 常数定义区开始 */
+
 /// 匈牙利算法的放大系数
 const MAGNIFY: f32 = 1e6;
+
+/* 常数定义区结束 */
+
+/* 私有函数定义区开始 */
 
 /// 用放大方法将对 float 型的最优匹配问题转为对 int 型的最优匹配问题
 fn kuhn_munkres_4_f32(weight_matrix_f64: &Matrix<f32>) -> (i64, Vec<usize>) {
@@ -154,6 +157,54 @@ fn iou3d(bbox1: &BBox3D::CornerPoints, bbox2: &BBox3D::CornerPoints) -> (
     }
 }
 
+/* 私有函数定义区结束 */
+
+/* trait 定义区开始 */
+
+// pub enum IFrameOrDeltaT<'a> {
+//     SomeIFrame(&'a IFrame),
+//     SomeDeltaT(usize),
+// }
+
+// pub trait IntoIFrameOrDeltaT {
+//     fn into_it<'a>(&'a self) -> IFrameOrDeltaT<'a>;
+// }
+// impl IntoIFrameOrDeltaT for IFrame {
+//     fn into_it<'a>(&'a self) -> IFrameOrDeltaT<'a> {
+//         IFrameOrDeltaT::SomeIFrame(self)
+//     }
+// }
+// impl IntoIFrameOrDeltaT for usize {
+//     fn into_it(&self) -> IFrameOrDeltaT<'static>
+//     {
+//         IFrameOrDeltaT::SomeDeltaT(*self)
+//     }
+// }
+
+pub enum IFrameOrDeltaT<'a> {
+    SomeIFrame(&'a IFrame),
+    SomeDeltaT(usize),
+}
+
+pub trait IntoIFrameOrDeltaT<'a> {
+    fn into(self) -> IFrameOrDeltaT<'a>;
+}
+impl<'a> IntoIFrameOrDeltaT<'a> for &'a IFrame {
+    fn into(self) -> IFrameOrDeltaT<'a> {
+        IFrameOrDeltaT::SomeIFrame(self)
+    }
+}
+impl IntoIFrameOrDeltaT<'static> for usize {
+    fn into(self) -> IFrameOrDeltaT<'static>
+    {
+        IFrameOrDeltaT::SomeDeltaT(self)
+    }
+}
+
+/* trait 定义区结束 */
+
+/* 私有结构体定义区开始 */
+
 /// # 追踪每一个轨迹
 #[derive(Clone)]
 struct Tracker {
@@ -163,8 +214,6 @@ struct Tracker {
     name: String,
     /// 对象类型（车，行人，等）
     object_type: ObjectType,
-    /// 3d 检测框
-    bbox_3d: BBox3D::XYZWHLRotY,
     /// 内部的 traker kalman filter
     trk_kf: TrackerKF,
     /// 命中次数
@@ -176,9 +225,13 @@ struct Tracker {
     iou3d_history: Vec<f32>,
 }
 
+/* 私有结构体定义区结束 */
+
+/* 共有结构体定义区开始 */
+
 /// ## AB3DMOT 模型
 pub struct AB3DMOT {
-    /// 看不到一个 traker n次，当 n > max_age 就丢弃
+    /// 自从上次匹配成功后看不到一个 traker n 次，当 n > max_age 就丢弃
     max_age: usize,
     /// 一个新物体持续追踪到 n 次，当 n >= min_hit 就认为是新物体
     min_hit: usize,
@@ -190,10 +243,10 @@ pub struct AB3DMOT {
     immature_trackers: Vec<Tracker>,
     /// 历史上给出的有效检测帧的个数
     frame_count: usize,
-    // history_tracker_num: usize,
 }
 
 impl AB3DMOT {
+    /// 给出 `max_age`, `min_hit` 和 `iou_threshold` 三个参数
     pub fn new(max_age: usize, min_hit: usize, iou_threshold: f32) -> Self {
         Self {
             max_age,
@@ -202,16 +255,20 @@ impl AB3DMOT {
             mature_trackers: Vec::<Tracker>::new(),
             immature_trackers: Vec::<Tracker>::new(),
             frame_count: 0,
-            // history_tracker_num:0,
         }
     }
 
-    pub fn update(&mut self, frame: Option<&IFrame>) -> OFrame::Verbose /*有返回值，但不清楚类型*/ {
-        // 开始预测
-        // 得到每一个 mature_tracker 的预测值
-        let mature_tracker_predictions: Vec<_> = self.mature_trackers.iter().map(
+    /// 给出一个 `delta_t` 的间隔时间来对某个由 tracker 组成的 vector 中的各个 traker 预测下一状态（相距这一状态 `delta_t` 的时间）
+    ///
+    /// 以 vector 的形式返回
+    #[inline]
+    fn get_predictions(trackers: &Vec<Tracker>, delta_t: f32) -> Vec<BBox3D::XYZWHLRotY> {
+        trackers.iter().map(
             |x| {
-                let rst_ovecter = (&x.trk_kf as &TrackerKF).predict().state().clone();
+                // 这里需要对 x 中的 trk_kf 指定一个 predict 方法的具体实现
+                // 因其同时在 TrackerKF 结构体自身和它所 impl 的 trait 中定义了 predict 方法
+                // 下面这里使用的是自己手动在 TrackerKF 自身实现的 predict 方法
+                let rst_ovecter = (&x.trk_kf as &TrackerKF).predict(delta_t).state().clone();
                 BBox3D::XYZWHLRotY(
                     rst_ovecter[0],
                     rst_ovecter[1],
@@ -222,187 +279,191 @@ impl AB3DMOT {
                     rst_ovecter[6],
                 )
             }
-        ).collect();
+        ).collect()
+    }
 
-        // 得到每一个 immature_tracker 的预测值
-        let immature_tracker_predictions: Vec<_> = self.immature_trackers.iter().map(
-            |x| {
-                let rst_ovecter = (&x.trk_kf as &TrackerKF).predict().state().clone();
-                BBox3D::XYZWHLRotY(
-                    rst_ovecter[0],
-                    rst_ovecter[1],
-                    rst_ovecter[2],
-                    rst_ovecter[3],
-                    rst_ovecter[4],
-                    rst_ovecter[5],
-                    rst_ovecter[6],
-                )
-            }
-        ).collect();
+    /// 通过给出一个 iframe: &mot_data::input::Frame 或是 delta_t: f32 来实现更新
+    /// 这里实现了对这两个不同类型引用的重载
+    pub fn update<'a>(&mut self, iframe_or_delta_t: impl IntoIFrameOrDeltaT<'a>) -> OFrame::Verbose /*有返回值，但不清楚类型*/ 
+    {
+        let iframe_or_delta_t = iframe_or_delta_t.into();
 
-        if let Some(frame) = frame {  // 如果给了有效数据
-            // 包含一个个三元组的数组
-            let data_3d = frame.get_3d_infos();
-            // 先取出三元组的第一个量
-            let (objects_type, remain_two): (Vec<_>, Vec<_>) = data_3d.into_iter().map(
-                |x| (x.0, (x.1, x.2))
-            ).unzip();
-            // 再取出三元组的第二个和第三个量
-            let (dets_xyz, _scores): (Vec<_>, Vec<_>) = remain_two.into_iter().unzip();
-            // 将所有 xyzwhlroty 转成 cornerpoints
-            let dets_corner: Vec<_> = dets_xyz.iter().map(|x| x.to_CornerPoints()).collect();
-            // 总 frame 数加一
-            self.frame_count += 1;
+        match iframe_or_delta_t {  // 如果给了有效数据
+            IFrameOrDeltaT::SomeIFrame(frame) => {
+                // 包含一个个三元组的数组
+                let data_3d = frame.get_3d_infos();
+                let delta_t = frame.delta_t as f32;
+                // 先取出三元组的第一个量
+                let (objects_type, remain_two): (Vec<_>, Vec<_>) = data_3d.into_iter().map(
+                    |x| (x.0, (x.1, x.2))
+                ).unzip();
+                // 再取出三元组的第二个和第三个量
+                let (dets_xyz, _scores): (Vec<_>, Vec<_>) = remain_two.into_iter().unzip();
+                // 将所有 xyzwhlroty 转成 cornerpoints
+                let dets_corner: Vec<_> = dets_xyz.iter().map(|x| x.to_CornerPoints()).collect();
+                // 总 frame 数加一
+                self.frame_count += 1;
+                
+                let mature_tracker_predictions = Self::get_predictions(&self.mature_trackers, delta_t);
+                let immature_tracker_predictions = Self::get_predictions(&self.immature_trackers, delta_t);
 
-            // 用这次的检测数据同 mature_trks 进行匹配
-            let (
-                matched_with_mature_trks,
-                mature_trks_idx_unmatched,
-                dets_idx_unmatched_with_mature_trks
-            ) = associate_detections_to_trackers(
-                &(mature_tracker_predictions.iter().map(|x| x.to_CornerPoints()).collect()),  // 用每个 tracker 的预测值和新出现的 bbox 之间进行匹配
-                &dets_corner,
-                self.iou_threshold
-            );
-            
-            // 对于 mature_trks 中匹配上的 trks
-            for (trker_id, det_id, iou) in matched_with_mature_trks {
-                let trker_mut_ref = &mut self.mature_trackers[trker_id];
-                trker_mut_ref.trk_kf.update(dets_xyz[det_id]);  // kalman 状态更新
-                trker_mut_ref.iou3d_history.push(iou);  // iou 历史值更新
-                trker_mut_ref.num_hit += 1;  // 命中数 +1
-            }
-
-            // 对于 mature_trks 中未匹配上的 trks
-            mature_trks_idx_unmatched.iter().filter_map(|&trker_id | {
-                // 对于每一个没匹配上的 trk 来说
-                let trker_mut_ref = &mut self.mature_trackers[trker_id];
-                trker_mut_ref.unmatched_f_since_l += 1;
-                if trker_mut_ref.unmatched_f_since_l > self.max_age {
-                    Some(trker_id)  // 删除超出最大保存时间的 tracker
-                } else {
-                    trker_mut_ref.trk_kf.update(mature_tracker_predictions[trker_id]);  // 拿自己的预测值来更新自己
-                    trker_mut_ref.iou3d_history.push(0f32);  // 没有命中
-                    None
+                // 用这次的检测数据同 mature_trks 进行匹配
+                let (
+                    matched_with_mature_trks,
+                    mature_trks_idx_unmatched,
+                    dets_idx_unmatched_with_mature_trks
+                ) = associate_detections_to_trackers(
+                    &(mature_tracker_predictions.iter().map(|x| x.to_CornerPoints()).collect()),  // 用每个 tracker 的预测值和新出现的 bbox 之间进行匹配
+                    &dets_corner,
+                    self.iou_threshold
+                );
+                
+                // 对于 mature_trks 中匹配上的 trks
+                for (trker_id, det_id, iou) in matched_with_mature_trks {
+                    let trker_mut_ref = &mut self.mature_trackers[trker_id];
+                    trker_mut_ref.unmatched_f_since_l = 0;
+                    trker_mut_ref.trk_kf.update(dets_xyz[det_id], delta_t);  // kalman 状态更新
+                    trker_mut_ref.iou3d_history.push(iou);  // iou 历史值更新
+                    trker_mut_ref.num_hit += 1;  // 命中数 +1
                 }
-            }).sorted_by(|x, y| y.cmp(x))/*这里必须要彻底拿到*/.for_each(|trker_id_needed_2b_removed| {
-                self.mature_trackers.swap_remove(trker_id_needed_2b_removed);
-            });
 
-            // 用未匹配成功的检测数据同 immature_trks 中的数据进行匹配
-            let (
-                matched_with_immature_trks,
-                immature_trks_idx_unmatched,
-                dets_idx_unmatched_with_immature_trks
-            ) = associate_detections_to_trackers(
-                &(immature_tracker_predictions.iter().map(|x| x.to_CornerPoints()).collect()),  // 用每个 tracker 的预测值和新出现的 bbox 之间进行匹配
-                &(dets_idx_unmatched_with_mature_trks.iter().map(|x| dets_corner[*x]).collect()),
-                self.iou_threshold
-            );
-            
-            // 对于 immature_trks 中成功同剩余检测数据匹配上的 trks 来说
-            matched_with_immature_trks.iter().filter_map(|&(trker_id, det_id, iou)| {
-                let trker_mut_ref = &mut self.immature_trackers[trker_id];
-                trker_mut_ref.trk_kf.update(dets_xyz[det_id]);  // kalman 状态更新
-                trker_mut_ref.iou3d_history.push(iou);  // iou 历史值更新
-                trker_mut_ref.num_hit += 1;  // 命中数 +1
-                if trker_mut_ref.num_hit >= self.min_hit {  // 如果可以「孵化」了
-                    // 将 immature_trks 中的一条 trk 移送 到 mature_trks 中
-                    self.mature_trackers.push(self.immature_trackers[trker_id].clone());
-                    Some(trker_id)
-                } else {
-                    None
-                }
-            }).collect::<Vec<usize>>().into_iter().chain(immature_trks_idx_unmatched.iter().filter_map(|&trker_id| {
+                // 对于 mature_trks 中未匹配上的 trks
+                mature_trks_idx_unmatched.iter().filter_map(|&trker_id | {
+                    // 对于每一个没匹配上的 trk 来说
+                    let trker_mut_ref = &mut self.mature_trackers[trker_id];
+                    trker_mut_ref.unmatched_f_since_l += 1;
+                    if trker_mut_ref.unmatched_f_since_l > self.max_age {
+                        Some(trker_id)  // 删除超出最大保存时间的 tracker
+                    } else {
+                        trker_mut_ref.trk_kf.update(mature_tracker_predictions[trker_id], delta_t);  // 拿自己的预测值来更新自己
+                        trker_mut_ref.iou3d_history.push(0f32);  // 没有命中
+                        None
+                    }
+                }).sorted_by(|x, y| y.cmp(x))/*这里必须要彻底拿到*/.for_each(|trker_id_needed_2b_removed| {
+                    self.mature_trackers.swap_remove(trker_id_needed_2b_removed);
+                });
+                
+                // 用未匹配成功的检测数据同 immature_trks 中的数据进行匹配
+                let (
+                    matched_with_immature_trks,
+                    immature_trks_idx_unmatched,
+                    dets_idx_unmatched_with_immature_trks
+                ) = associate_detections_to_trackers(
+                    &(immature_tracker_predictions.iter().map(|x| x.to_CornerPoints()).collect()),  // 用每个 tracker 的预测值和新出现的 bbox 之间进行匹配
+                    &(dets_idx_unmatched_with_mature_trks.iter().map(|x| dets_corner[*x]).collect()),
+                    self.iou_threshold
+                );
+                
+                // 对于 immature_trks 中成功同剩余检测数据匹配上的 trks 来说
+                matched_with_immature_trks.iter().filter_map(|&(trker_id, det_id, iou)| {
+                    let trker_mut_ref = &mut self.immature_trackers[trker_id];
+                    trker_mut_ref.unmatched_f_since_l = 0;
+                    trker_mut_ref.trk_kf.update(dets_idx_unmatched_with_mature_trks.iter().map(|&x| dets_xyz[x]).nth(det_id).unwrap(), delta_t);  // kalman 状态更新
+                    trker_mut_ref.iou3d_history.push(iou);  // iou 历史值更新
+                    trker_mut_ref.num_hit += 1;  // 命中数 +1
+                    if trker_mut_ref.num_hit >= self.min_hit {  // 如果可以「孵化」了
+                        // 将 immature_trks 中的一条 trk 移送 到 mature_trks 中
+                        self.mature_trackers.push(self.immature_trackers[trker_id].clone());
+                        Some(trker_id)
+                    } else {
+                        None
+                    }
+                }).collect::<Vec<usize>>().into_iter().chain(immature_trks_idx_unmatched.iter().filter_map(|&trker_id| {
                     //对于 immature_trks 中未能成功匹配上的 trks 来说
                     let trker_mut_ref = &mut self.immature_trackers[trker_id];
                     trker_mut_ref.unmatched_f_since_l += 1;
                     if trker_mut_ref.unmatched_f_since_l > self.max_age {
                         Some(trker_id)  // 删除超出最大保存时间的 tracker
                     } else {
-                        trker_mut_ref.trk_kf.update(immature_tracker_predictions[trker_id]);  // 拿自己的预测值来更新自己
+                        trker_mut_ref.trk_kf.update(immature_tracker_predictions[trker_id], delta_t);  // 拿自己的预测值来更新自己
                         trker_mut_ref.iou3d_history.push(0f32);  // 没有命中
                         None
                     }
-            })).sorted_by(|x, y| y.cmp(x)).for_each(|trker_id_needed_2b_removed| {
-                self.immature_trackers.swap_remove(trker_id_needed_2b_removed);
-            });
+                })).sorted_by(|x, y| y.cmp(x)).for_each(|trker_id_needed_2b_removed| {
+                    self.immature_trackers.swap_remove(trker_id_needed_2b_removed);
+                });
 
-            let mut name_generator = Generator::default();  // 随机名称生成器
+                let mut name_generator = Generator::default();  // 随机名称生成器
 
-            // 对于最后都没有成功匹配上任何一种 trks 来说，认为可能是新物体
-            for det_id in dets_idx_unmatched_with_immature_trks {
-                self.immature_trackers.push(
-                    Tracker {
-                        id: Uuid::new_v4(),
-                        name: name_generator.next().unwrap(),
-                        object_type: objects_type[det_id],
-                        bbox_3d: dets_xyz[det_id],
-                        trk_kf: TrackerKF::new(
-                            dets_xyz[det_id],
-                            [
-                                10.0f32,
-                                10.0f32,
-                                10.0f32,
-                                10.0f32,
-                                10.0f32,
-                                10.0f32,
-                                10.0f32,
-                                1000.0f32,
-                                1000.0f32,
-                                1000.0f32,
-                        ]),
-                        num_hit: 0,  // 第一次出现不认为是命中
-                        unmatched_f_since_l: 0,  // 第一次出现也不认为是失配
-                        iou3d_history: Vec::<f32>::new(),
-                    }
-                )
-            }  // 新的 tracker
-
-
-            OFrame::Verbose {
-                objects: self.mature_trackers.iter().map(  // 只将命中次数大于命中次数下限的
-                    |x| {
-                        OObject::Verbose {
-                            id: x.id,
-                            name: x.name.clone(),
-                            object_type: x.object_type,
-                            bbox_2d: None,
-                            bbox_3d: Some(x.bbox_3d),
-                            num_hit: x.num_hit,
-                            unmatched_f_since_l: x.unmatched_f_since_l,
-                            iou3d_history: x.iou3d_history.clone(),
-                            score: *x.iou3d_history.last().unwrap(),
+                // 对于最后都没有成功匹配上任何一种 trks 来说，认为可能是新物体
+                for det_id in dets_idx_unmatched_with_immature_trks {
+                    self.immature_trackers.push(
+                        Tracker {
+                            id: Uuid::new_v4(),
+                            name: name_generator.next().unwrap(),
+                            object_type: objects_type[det_id],
+                            trk_kf: TrackerKF::new(
+                                dets_xyz[det_id],
+                                [
+                                    0f32,
+                                    0f32,
+                                    0f32,
+                                    0f32,
+                                    0f32,
+                                    0f32,
+                                    0f32,
+                                    1e-8f32,
+                                    1e-8f32,
+                                    1e-8f32,
+                            ]),
+                            num_hit: 0,  // 第一次出现不认为是命中
+                            unmatched_f_since_l: 0,  // 第一次出现也不认为是失配
+                            iou3d_history: Vec::<f32>::new(),
                         }
-                    }
-                ).collect()
-            }
-        } else {  // 传入空的 frame，意味着要预测一帧
-            for (each_trk, each_prediction) in
-                self.mature_trackers.iter_mut().chain(self.immature_trackers.iter_mut()).zip(
-                    mature_tracker_predictions.iter().chain(immature_tracker_predictions.iter())
-            ) {
-                each_trk.trk_kf.update(*each_prediction);
-                // 暂不更新 iou3d 的值
-                // each_trk.iou3d_history = 0f32;
-            }
-            OFrame::Verbose {
-                objects: self.mature_trackers.iter().map(  // 只将命中次数大于命中次数下限的
-                    |x| {
-                        OObject::Verbose {
-                            id: x.id,
-                            name: x.name.clone(),
-                            object_type: x.object_type,
-                            bbox_2d: None,
-                            bbox_3d: Some(x.bbox_3d),
-                            num_hit: x.num_hit,
-                            unmatched_f_since_l: x.unmatched_f_since_l,
-                            iou3d_history: x.iou3d_history.clone(),
-                            score: *x.iou3d_history.last().unwrap(),
+                    )
+                }  // 新的 tracker
+
+
+                OFrame::Verbose {
+                    objects: self.mature_trackers.iter().map(  // 只将命中次数大于命中次数下限的
+                        |x| {
+                            OObject::Verbose {
+                                id: x.id,
+                                name: x.name.clone(),
+                                object_type: x.object_type,
+                                bbox_2d: None,
+                                bbox_3d: Some(x.trk_kf.get_current_state()),
+                                num_hit: x.num_hit,
+                                unmatched_f_since_l: x.unmatched_f_since_l,
+                                iou3d_history: x.iou3d_history.clone(),
+                                score: *x.iou3d_history.last().unwrap(),
+                            }
                         }
-                    }
-                ).collect()
-            }
+                    ).collect()
+                }
+            },
+            IFrameOrDeltaT::SomeDeltaT(delta_t) => {  // 传入空的 frame，意味着要预测一帧
+                let delta_t = delta_t as f32;
+                let mature_tracker_predictions = Self::get_predictions(&self.mature_trackers, delta_t);
+                let immature_tracker_predictions = Self::get_predictions(&self.immature_trackers, delta_t);
+                for (each_trk, each_prediction) in
+                    self.mature_trackers.iter_mut().chain(self.immature_trackers.iter_mut()).zip(
+                        mature_tracker_predictions.iter().chain(immature_tracker_predictions.iter())
+                ) {
+                    each_trk.trk_kf.update(*each_prediction, delta_t);
+                    // 暂不更新 iou3d 的值
+                    // each_trk.iou3d_history = 0f32;
+                }
+                OFrame::Verbose {
+                    objects: self.mature_trackers.iter().map(  // 只将命中次数大于命中次数下限的
+                        |x| {
+                            OObject::Verbose {
+                                id: x.id,
+                                name: x.name.clone(),
+                                object_type: x.object_type,
+                                bbox_2d: None,
+                                bbox_3d: Some(x.trk_kf.get_current_state()),
+                                num_hit: x.num_hit,
+                                unmatched_f_since_l: x.unmatched_f_since_l,
+                                iou3d_history: x.iou3d_history.clone(),
+                                score: *x.iou3d_history.last().unwrap(),
+                            }
+                        }
+                    ).collect()
+                }
+            },
         }
     }
 }
+
+/* 共有结构体定义区结束 */
