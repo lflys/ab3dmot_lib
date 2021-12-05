@@ -131,12 +131,19 @@ fn iou3d(bbox1: &BBox3D::CornerPoints, bbox2: &BBox3D::CornerPoints) -> (
             (x: b23[0] as f64, y: b23[2] as f64),
         ],
     );
+    // 求出俩底面积
     let (bbox1_base_area, bbox2_base_area) = (bbox1_base.unsigned_area() as f32, bbox2_base.unsigned_area() as f32);
-    if bbox1_base.intersects(&bbox2_base) {
+    if bbox1_base.intersects(&bbox2_base) {  // 如果有相交部分
+        // 两个长方形相交部分数顶多一个
         let base_intersection_area = bbox1_base.intersection(&bbox2_base, 1e6).iter().nth(0).unwrap().unsigned_area() as f32;
     
-        let (h_intersection_upper, h_intersection_lower) = ( b14[1].max(b24[1]), b10[1].min(b20[1]));
+        // 相交体积的上部和下部
+        let (h_intersection_upper, h_intersection_lower) = (
+            b14[1].max(b24[1]),
+            b10[1].min(b20[1])
+        );
 
+        // 相交部分的高
         let h_intersection_len = (h_intersection_upper - h_intersection_lower).abs();
 
         let (bbox1_vol, bbox2_vol, intersection_vol) = (
@@ -146,8 +153,8 @@ fn iou3d(bbox1: &BBox3D::CornerPoints, bbox2: &BBox3D::CornerPoints) -> (
         );
 
         (
-            intersection_vol/(bbox1_vol + bbox2_vol - intersection_vol),
-            base_intersection_area/(bbox1_base_area + bbox2_base_area - base_intersection_area),
+            intersection_vol/(bbox1_vol + bbox2_vol - intersection_vol),  // 体积的交/体积的并
+            base_intersection_area/(bbox1_base_area + bbox2_base_area - base_intersection_area),  // 底面积的交/底面积的并
         )
     } else {
         (
@@ -247,7 +254,8 @@ pub struct AB3DMOT {
 
 impl AB3DMOT {
     /// 给出 `max_age`, `min_hit` 和 `iou_threshold` 三个参数
-    pub fn new(max_age: usize, min_hit: usize, iou_threshold: f32) -> Self {
+    pub fn new(max_age: usize, min_hit: usize, iou_threshold: f32, motion_model_process_conv: [f32; 10], observation_conv: [f32; 7]) -> Self {
+        TrackerKF::set_convs(motion_model_process_conv, observation_conv);
         Self {
             max_age,
             min_hit,
@@ -422,7 +430,7 @@ impl AB3DMOT {
                                 name: x.name.clone(),
                                 object_type: x.object_type,
                                 bbox_2d: None,
-                                bbox_3d: Some(x.trk_kf.get_current_state()),
+                                bbox_3d: Some(x.trk_kf.get_latest_observation()),
                                 num_hit: x.num_hit,
                                 unmatched_f_since_l: x.unmatched_f_since_l,
                                 iou3d_history: x.iou3d_history.clone(),
@@ -452,7 +460,7 @@ impl AB3DMOT {
                                 name: x.name.clone(),
                                 object_type: x.object_type,
                                 bbox_2d: None,
-                                bbox_3d: Some(x.trk_kf.get_current_state()),
+                                bbox_3d: Some(x.trk_kf.get_latest_observation()),
                                 num_hit: x.num_hit,
                                 unmatched_f_since_l: x.unmatched_f_since_l,
                                 iou3d_history: x.iou3d_history.clone(),

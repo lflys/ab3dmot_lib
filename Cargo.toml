@@ -23,4 +23,5 @@ strum = "0.22.0"
 strum_macros = "0.22"
 derive_more = "0.99.16"
 lazy_static = "1.4.0"
+once_cell = "1.8.0"
 mot_data = {path = "../mot_data"}
