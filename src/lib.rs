@@ -242,6 +242,8 @@ pub struct AB3DMOT {
     max_age: usize,
     /// 一个新物体持续追踪到 n 次，当 n >= min_hit 就认为是新物体
     min_hit: usize,
+    /// 初次估计的误差方差
+    initial_estimation_noise_var: [f32; 10],
     /// 匹配的 iou 下限
     iou_threshold: f32,
     /// 已经确定是一个物体了
@@ -254,11 +256,19 @@ pub struct AB3DMOT {
 
 impl AB3DMOT {
     /// 给出 `max_age`, `min_hit` 和 `iou_threshold` 三个参数
-    pub fn new(max_age: usize, min_hit: usize, iou_threshold: f32, motion_model_process_conv: [f32; 10], observation_conv: [f32; 7]) -> Self {
+    pub fn new(
+        max_age: usize,
+        min_hit: usize,
+        iou_threshold: f32,
+        motion_model_process_conv: [f32; 10],
+        observation_conv: [f32; 7],
+        initial_estimation_noise_var: [f32; 10],
+    ) -> Self {
         TrackerKF::set_convs(motion_model_process_conv, observation_conv);
         Self {
             max_age,
             min_hit,
+            initial_estimation_noise_var,
             iou_threshold,
             mature_trackers: Vec::<Tracker>::new(),
             immature_trackers: Vec::<Tracker>::new(),
@@ -402,18 +412,8 @@ impl AB3DMOT {
                             object_type: objects_type[det_id],
                             trk_kf: TrackerKF::new(
                                 dets_xyz[det_id],
-                                [
-                                    0f32,
-                                    0f32,
-                                    0f32,
-                                    0f32,
-                                    0f32,
-                                    0f32,
-                                    0f32,
-                                    1e-8f32,
-                                    1e-8f32,
-                                    1e-8f32,
-                            ]),
+                                self.initial_estimation_noise_var,
+                            ),
                             num_hit: 0,  // 第一次出现不认为是命中
                             unmatched_f_since_l: 0,  // 第一次出现也不认为是失配
                             iou3d_history: Vec::<f32>::new(),
